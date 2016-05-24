@@ -71,11 +71,9 @@ func main() {
 			ticker.Stop()
 			ticker = newTicker(status, lowFrequency, highFrequency)
 
-			fmt.Printf("status changed to %q\n", status)
+			log.Printf("status changed to %q", status)
 			saveLastStatus(status)
-			if channel != "" {
-				sendSlackNotification(channel, status)
-			}
+			sendSlackNotification(channel, status)
 
 			lastStatus = status
 		}
@@ -131,8 +129,20 @@ func printVersion() {
 }
 
 func sendSlackNotification(channel string, lastStatus string) {
+	if channel == "" {
+		return
+	}
+
 	slackTeam := os.Getenv("SLACK_TEAM")
+	if slackTeam == "" {
+		return
+	}
+
 	slackToken := os.Getenv("SLACK_TOKEN")
+	if slackToken == "" {
+		return
+	}
+
 	channel = "%23" + channel // #channel
 	requestUrl := fmt.Sprintf("https://%s.slack.com/services/hooks/slackbot?token=%s&channel=%s", slackTeam, slackToken, channel)
 	switch lastStatus {
