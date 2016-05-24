@@ -19,7 +19,7 @@ const (
 
 	githubStatusApi = "https://status.github.com/api/status.json"
 	version         = "1.0.0"
-	usageMessage    = `Usage: github_status [OPTIONS] [URL]
+	usageMessage    = `Usage: github_status [OPTIONS]
 
 OPTIONS:
     -h               Display usage
