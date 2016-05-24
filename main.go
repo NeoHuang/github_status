@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	good  = "good"
-	minor = "minor"
-	major = "major"
+	good    = "good"
+	minor   = "minor"
+	major   = "major"
+	unknown = "unknown"
 
 	githubStatusApi = "https://status.github.com/api/status.json"
 	version         = "1.0.0"
@@ -48,43 +49,44 @@ func main() {
 		return
 	}
 
-	var low int
-	var high int
-	var channel string
-	flag.IntVar(&low, "low", 60, "low frequency")
-	flag.IntVar(&high, "high", 5, "high frequency")
+	var low, high, channel string
+	flag.StringVar(&low, "low", "1m", "low frequency")
+	flag.StringVar(&high, "high", "5s", "high frequency")
 	flag.StringVar(&channel, "channel", "", "channel name in slack")
 	flag.Parse()
 
-	lowFrequency := time.Second * time.Duration(low)
-	highFrequency := time.Second * time.Duration(high)
+	lowFrequency, err := time.ParseDuration(low)
+	if err != nil {
+		log.Fatal("failed to parse low")
+	}
+	highFrequency, err := time.ParseDuration(high)
+	if err != nil {
+		log.Fatal("failed to parse high")
+	}
 
 	var lastStatus = loadLastStatus()
-	timer := time.NewTimer(lowFrequency)
-	for {
-		status := getStatus()
-		if status.Status != good {
-			timer.Reset(highFrequency)
-		} else {
-			timer.Reset(lowFrequency)
-		}
-		if status.Status != lastStatus {
-			fmt.Printf("status is %s\n", status.Status)
-			lastStatus = status.Status
-			saveLastStatus(lastStatus)
+	ticker := newTicker(lastStatus, lowFrequency, highFrequency)
+	for range ticker.C {
+		if status := getStatus(); status != lastStatus {
+			ticker.Stop()
+			ticker = newTicker(status, lowFrequency, highFrequency)
+
+			fmt.Printf("status changed to %q\n", status)
+			saveLastStatus(status)
 			if channel != "" {
-				sendSlackNotification(channel, lastStatus)
+				sendSlackNotification(channel, status)
 			}
+
+			lastStatus = status
 		}
-		<-timer.C
 	}
 }
 
-func getStatus() *githubStatus {
+func getStatus() string {
 	resp, err := http.Get(githubStatusApi)
 	if err != nil {
 		log.Printf("error ping github api")
-		return nil
+		return unknown
 	}
 	defer resp.Body.Close()
 	var status githubStatus
@@ -92,10 +94,17 @@ func getStatus() *githubStatus {
 	err = json.Unmarshal(body, &status)
 	if err != nil {
 		log.Printf("error unmarshal github status response")
-		return nil
+		return unknown
 	}
 
-	return &status
+	return status.Status
+}
+
+func newTicker(status string, low, high time.Duration) *time.Ticker {
+	if status == good {
+		return time.NewTicker(low)
+	}
+	return time.NewTicker(high)
 }
 
 func loadLastStatus() string {
@@ -104,7 +113,9 @@ func loadLastStatus() string {
 		log.Printf("error reading last status")
 		return ""
 	}
-	return string(bytes)
+	lastStatus := string(bytes)
+	fmt.Printf("loaded last status: %q\n", lastStatus)
+	return lastStatus
 }
 
 func saveLastStatus(lastStatus string) {
