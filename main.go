@@ -27,6 +27,7 @@ OPTIONS:
     --high           high frequency ping interval (example "1s" "5m" "1.5h"). is used when github is down. default is 5 seconds
     --low            low frequency ping interval (example "1s" "5m" "1.5h"). is used when github is normal. default is 1 minute
     --channel        slack channel you wanna sent to.
+    --verbose        output verbose log
 
 get github status by pinging https://status.github.com/api/status.json. Send notification to slack channel when status changed
 slack team is required to set as Environment variable "SLACK_TEAM"
@@ -42,6 +43,15 @@ type githubStatus struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
+var (
+	lowFrequency  time.Duration
+	highFrequency time.Duration
+	channel       string
+	verbose       bool
+
+	testCount int
+)
+
 func main() {
 	flag.Usage = func() {
 		printVersion()
@@ -49,38 +59,59 @@ func main() {
 		return
 	}
 
-	var low, high, channel string
+	var low, high string
 	flag.StringVar(&low, "low", "1m", "low frequency")
 	flag.StringVar(&high, "high", "5s", "high frequency")
 	flag.StringVar(&channel, "channel", "", "channel name in slack")
+	flag.BoolVar(&verbose, "verbose", false, "output verbose log")
 	flag.Parse()
 
-	lowFrequency, err := time.ParseDuration(low)
+	if verbose {
+		log.Printf("high frequency: %v, low frequency: %v", low, high)
+	}
+	var err error
+	lowFrequency, err = time.ParseDuration(low)
 	if err != nil {
 		log.Fatal("failed to parse low")
 	}
-	highFrequency, err := time.ParseDuration(high)
+	highFrequency, err = time.ParseDuration(high)
 	if err != nil {
 		log.Fatal("failed to parse high")
 	}
 
 	var lastStatus = loadLastStatus()
 	ticker := newTicker(lastStatus, lowFrequency, highFrequency)
-	for range ticker.C {
-		if status := getStatus(); status != lastStatus {
-			ticker.Stop()
-			ticker = newTicker(status, lowFrequency, highFrequency)
-
-			log.Printf("status changed to %q", status)
-			saveLastStatus(status)
-			sendSlackNotification(channel, status)
-
-			lastStatus = status
-		}
+	status, ticker := checkGithubStatus(lastStatus, ticker)
+	for {
+		<-ticker.C
+		status, ticker = checkGithubStatus(status, ticker)
 	}
 }
 
+func checkGithubStatus(lastStatus string, ticker *time.Ticker) (status string, nextTicker *time.Ticker) {
+	status = getStatus()
+	if verbose {
+		log.Printf("get status: %s", status)
+	}
+	if status != lastStatus {
+		ticker.Stop()
+		ticker = newTicker(status, lowFrequency, highFrequency)
+
+		log.Printf("status changed to %q", status)
+		saveLastStatus(status)
+		sendSlackNotification(channel, status)
+	}
+	return status, ticker
+}
+
 func getStatus() string {
+	if verbose {
+		log.Printf("ping github status api")
+	}
+	testCount++
+	if testCount%5 == 0 {
+		return unknown
+	}
 	resp, err := http.Get(githubStatusApi)
 	if err != nil {
 		log.Printf("error ping github api")
@@ -100,8 +131,13 @@ func getStatus() string {
 
 func newTicker(status string, low, high time.Duration) *time.Ticker {
 	if status == good {
+		if verbose {
+			log.Printf("new ticker with low frequency")
+		}
 		return time.NewTicker(low)
 	}
+
+	log.Printf("new ticker with high frequency")
 	return time.NewTicker(high)
 }
 
