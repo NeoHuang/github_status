@@ -48,8 +48,6 @@ var (
 	highFrequency time.Duration
 	channel       string
 	verbose       bool
-
-	testCount int
 )
 
 func main() {
@@ -108,10 +106,7 @@ func getStatus() string {
 	if verbose {
 		log.Printf("ping github status api")
 	}
-	testCount++
-	if testCount%5 == 0 {
-		return unknown
-	}
+
 	resp, err := http.Get(githubStatusApi)
 	if err != nil {
 		log.Printf("error ping github api")
