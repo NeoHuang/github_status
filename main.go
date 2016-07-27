@@ -48,6 +48,7 @@ var (
 	highFrequency time.Duration
 	channel       string
 	verbose       bool
+	unknownCount  int
 )
 
 func main() {
@@ -91,6 +92,18 @@ func checkGithubStatus(lastStatus string, ticker *time.Ticker) (status string, n
 	if verbose {
 		log.Printf("get status: %s", status)
 	}
+
+	if status == unknown {
+		unknownCount++
+		log.Printf("get unknown status, count: %d", unknownCount)
+		// only change status to unknown if get unknown status continiously
+		if unknownCount < 5 {
+			return lastStatus, ticker
+		}
+	} else {
+		unknownCount = 0
+	}
+
 	if status != lastStatus {
 		ticker.Stop()
 		ticker = newTicker(status, lowFrequency, highFrequency)
@@ -183,6 +196,8 @@ func sendSlackNotification(channel string, lastStatus string) {
 		postSlack(requestUrl, "github has minor issue :construction:")
 	case major:
 		postSlack(requestUrl, "github is DOWN!!!! :x:")
+	default:
+		postSlack(requestUrl, "github status unknown. :confused:")
 	}
 }
 
